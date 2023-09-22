@@ -300,7 +300,18 @@ void execute_par(Queue *queue)
     int i = 0;
     while (current != NULL)
     {
-        if (pthread_create(&threads[i], NULL, (void *)command_thread, current->name) != 0)
+        if (!strcmp(current->name, "exit")){
+            exit(0);
+        } else if (!strcmp(current->name, "style sequential"))
+            {
+                printf("You cannot change the shell style while executing other commands.\n"
+                        "Please type just \'style sequential\' or \'style parallel\' to change the shell style.\n");
+            }
+            else if (!strcmp(current->name, "style parallel"))
+            {
+                printf("You cannot change the shell style while executing other commands.\n"
+                        "Please type just \'style sequential\' or \'style parallel\' to change the shell style.\n");
+            } else if (pthread_create(&threads[i], NULL, (void *)command_thread, current->name) != 0)
         {
             fprintf(stderr, "Erro ao criar a thread\n");
             exit(1);
@@ -337,6 +348,7 @@ int execute_seq(Queue *queue)
             if (!strcmp(current->name, "exit"))
             {
                 clearQueue(queue);
+                // revisar isso
                 kill(parent_pid, SIGTERM);
                 exit(0);
             }
