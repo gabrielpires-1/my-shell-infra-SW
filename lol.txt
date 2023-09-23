@@ -1,0 +1,8 @@
+Makefile
+README.md
+comandos.txt
+gabriel
+lol.txt
+lsfile
+myShell.c
+shell

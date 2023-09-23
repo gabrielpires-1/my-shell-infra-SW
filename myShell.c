@@ -48,13 +48,15 @@ void removeWhiteSpacesBeforeAfter(char *string);
 int isBackground(char *string);
 int executePipe(char *command);
 int executeRedirecting(char *totalCommand);
+void divideName(const char *name, char **comando, char **flag);
+char **splitString(const char *input);
+void executeInputFile(char *instruction);
 
 int main(int argc, char *argv[])
 {
     Queue *queue = createQueue(argc);
     int should_run = 1; /* flag to determine when to exit program */
     size_t n = 0;
-    char *line = NULL;
     int firstCommand = 1;
 
     if (argc > 2)
@@ -65,6 +67,7 @@ int main(int argc, char *argv[])
 
     if (argc > 1)
     {
+        char *line = NULL;
         printf("Archive: %s\n", argv[1]);
         // Abra o arquivo para leitura
         FILE *file = fopen(argv[1], "r");
@@ -79,16 +82,55 @@ int main(int argc, char *argv[])
         {
             removeWhiteSpacesBeforeAfter(line);
 
-            if (!strcmp(line, "style sequential"))
+            if (containsSymbol(line, "!!") && !firstCommand)
             {
+                char *posicao = strstr(line, "!!");
+                char *resultLine = (char *)malloc(strlen(line) + strlen(queue->last_command) - 1);
+
+                // Calcule o tamanho da substring antes de "!!"
+                int tamanhoAntes = posicao - line;
+
+                // Copie a parte da primeira string antes de "!!" para o resultado
+                strncpy(resultLine, line, tamanhoAntes);
+                resultLine[tamanhoAntes] = '\0'; // Adicione o caractere nulo para indicar o final da string
+
+                // Concatene a segunda string ao resultado
+                strcat(resultLine, queue->last_command);
+
+                // Concatene a parte da primeira string após "!!" ao resultado
+                strcat(resultLine, posicao + 2); // +2 para pular os caracteres "!!"
+                line = (char *)malloc(strlen(resultLine) + 1);
+                strcpy(line, resultLine);
+                free(resultLine);
+            }
+            queue->last_command = (char *)malloc(strlen(line) + 1);
+            strcpy(queue->last_command, line);
+            //if(!strcmp(line, "exit\n")) return 0; 
+            if (feof(stdin))
+            {
+                printf("\nCTRL-D pressed\nExiting shell...\n");
+                return 0;
+            }
+            else if (!strcmp(line, "style sequential"))
+            {
+                firstCommand = 0;
                 strcpy(queue->style, "seq>");
             }
             else if (!strcmp(line, "style parallel"))
             {
+                firstCommand = 0;
                 strcpy(queue->style, "par>");
             }
-            else
+            else if (containsSymbol(line, "!!") && firstCommand)
             {
+                printf("No commands\n");
+            } else if(!strcmp(line, "exit")){
+                should_run = 0;
+            }
+            else if (strcmp(line, ""))
+            {
+
+                firstCommand = 0;
                 executeLine(line, queue);
 
                 if (!strcmp(queue->style, "seq>"))
@@ -100,7 +142,6 @@ int main(int argc, char *argv[])
                     execute_par(queue);
                 }
             }
-
             clearQueue(queue);
         }
         fclose(file);
@@ -109,6 +150,8 @@ int main(int argc, char *argv[])
     {
         while (should_run)
         {
+            char *line = NULL;
+            fflush(stdout);
             printf("gpac %s ", queue->style);
             fflush(stdout); // fflush exibe imediatamente o que existe no buffer (osh>)
 
@@ -137,7 +180,7 @@ int main(int argc, char *argv[])
                 strcpy(line, resultLine);
                 free(resultLine);
             }
-
+            queue->last_command = (char *)malloc(strlen(line) + 1);
             strcpy(queue->last_command, line);
 
             if (feof(stdin))
@@ -158,10 +201,10 @@ int main(int argc, char *argv[])
             else if (containsSymbol(line, "!!") && firstCommand)
             {
                 printf("No commands\n");
-            } 
-            // bug do espaço aquii
-            else
+            }
+            else if (strcmp(line, ""))
             {
+
                 firstCommand = 0;
                 executeLine(line, queue);
 
@@ -175,9 +218,9 @@ int main(int argc, char *argv[])
                 }
             }
             clearQueue(queue);
+            free(line);
         }
     }
-    free(line);
     return 0;
 }
 
@@ -316,7 +359,7 @@ Queue *createQueue(int argc)
     }
     queue->head = NULL;
     queue->tail = NULL;
-    queue->last_command = (char *)malloc(sizeof(strlen("No commands") + 1));
+    queue->last_command = (char *)malloc(strlen("No commands") + 1);
     if (queue->last_command == NULL)
     {
         fprintf(stderr, "Memory allocation error for the queue last command\n");
@@ -434,49 +477,6 @@ int execute_seq(Queue *queue)
 {
     pid_t parent_pid = getppid();
 
-    Node *current = queue->head;
-
-    if (isBackground(current->name))
-    {
-        pidBack = fork();
-
-        if (pidBack == -1)
-        {
-            perror("fork");
-            return 1;
-        }
-
-        if (pidBack == 0)
-        {
-            // Este é o processo filho
-            execlp("/bin/sh", "sh", "-c", current->name, NULL);
-            perror("execlp"); // Em caso de erro na execução do comando
-            return 1;
-        }
-        else
-        {
-
-            kill(pidBack, SIGSTOP);
-            printf("Processo filho suspenso (PID: %d)\n", pidBack);
-            fflush(stdout);
-        }
-        current = current->next;
-    }
-
-    if (current == NULL)
-        return 0;
-
-    if (!strcmp(current->name, "fg"))
-    {
-        // Se arg for "fg", retoma o processo filho
-        kill(pidBack, SIGCONT);
-        wait(NULL);
-        current = current->next;
-    }
-
-    if (current == NULL)
-        return 0;
-
     int pid = fork();
 
     if (pid < 0)
@@ -489,33 +489,39 @@ int execute_seq(Queue *queue)
         // child
         // child cria n forks, representando n processos
         // revisar isso
-
+        Node *current = queue->head;
         while (current != NULL)
         {
-            if (!strcmp(current->name, "exit"))
+            char *instruction = (char *)malloc(strlen(current->name) + 1);
+            strcpy(instruction, current->name);
+            if (!strcmp(instruction, "exit"))
             {
                 clearQueue(queue);
                 // revisar isso
                 kill(parent_pid, SIGTERM);
                 exit(0);
             }
-            else if (!strcmp(current->name, "style sequential"))
+            else if (!strcmp(instruction, "style sequential"))
             {
                 printf("You cannot change the shell style while executing other commands.\n"
                        "Please type just \'style sequential\' or \'style parallel\' to change the shell style.\n");
             }
-            else if (!strcmp(current->name, "style parallel"))
+            else if (!strcmp(instruction, "style parallel"))
             {
                 printf("You cannot change the shell style while executing other commands.\n"
                        "Please type just \'style sequential\' or \'style parallel\' to change the shell style.\n");
             }
-            else if (containsSymbol(current->name, ">"))
+            else if (containsSymbol(instruction, ">"))
             {
-                executeRedirecting(current->name);
+                executeRedirecting(instruction);
             }
-            else if (containsSymbol(current->name, "|"))
+            else if (containsSymbol(instruction, "|"))
             {
-                executePipe(current->name);
+                executePipe(instruction);
+            }
+            else if (containsSymbol(instruction, "<"))
+            {
+                executeInputFile(instruction);
             }
             else
             {
@@ -530,25 +536,30 @@ int execute_seq(Queue *queue)
                 {
                     if (queue->mode == 1)
                     {
-                        printf("%s\n", current->name);
+                        printf("%s\n", instruction);
                         fflush(stdout);
                     }
+                    fflush(stdout);
+                    char *command;
+                    char *flags;
+                    divideName(instruction, &command, &flags);
 
-                    execlp("/bin/sh", "sh", "-c", current->name, NULL);
+                    char **arrExecute = splitString(flags);
+
+                    execvp(command, arrExecute);
                     perror("execlp");
                     exit(0);
                 }
-                wait(NULL);
+                waitpid(pid1, NULL, 0);
                 fflush(stdout);
             }
-
+            free(instruction);
             current = current->next;
+            fflush(stdout);
         }
         exit(0);
     }
-
     waitpid(pid, NULL, 0);
-
     return 0;
 }
 
@@ -777,7 +788,8 @@ int executeRedirecting(char *totalCommand)
             return 3;
         }
 
-        if(containsSymbol(command, "|")){
+        if (containsSymbol(command, "|"))
+        {
             executePipe(command);
             exit(0);
         }
@@ -789,4 +801,138 @@ int executeRedirecting(char *totalCommand)
 
     waitpid(pid1, NULL, 0);
     fflush(stdout);
+}
+
+void divideName(const char *name, char **comando, char **flag)
+{
+    // Encontre o primeiro espaço em branco para separar o comando das flags
+    const char *space = strchr(name, ' ');
+
+    if (space != NULL)
+    {
+        // Calcule o tamanho do comando
+        size_t comando_len = space - name;
+
+        // Aloque espaço para o comando e copie-o
+        *comando = (char *)malloc(comando_len + 1);
+        strncpy(*comando, name, comando_len);
+        (*comando)[comando_len] = '\0';
+
+        // O restante da string é tratado como a flag completa
+        *flag = strdup(name);
+    }
+    else
+    {
+        // Se não houver espaço em branco, assume que não há flags
+        *comando = strdup(name);
+        *flag = strdup(name);
+    }
+}
+
+char **splitString(const char *input)
+{
+    int bufferSize = 10; // Tamanho inicial do array
+    int count = 0;       // Contador de elementos no array
+    char **result = (char **)malloc(bufferSize * sizeof(char *));
+
+    if (result == NULL)
+    {
+        perror("Erro ao alocar memória");
+        exit(EXIT_FAILURE);
+    }
+
+    char *inputCopy = strdup(input); // Crie uma cópia da string de entrada
+    if (inputCopy == NULL)
+    {
+        perror("Erro ao alocar memória para a cópia da entrada");
+        exit(EXIT_FAILURE);
+    }
+
+    char *token = strtok(inputCopy, " ");
+    while (token != NULL)
+    {
+        result[count++] = strdup(token);
+
+        if (count >= bufferSize)
+        {
+            bufferSize += 10; // Aumentar o tamanho do array conforme necessário
+            result = (char **)realloc(result, bufferSize * sizeof(char *));
+
+            if (result == NULL)
+            {
+                perror("Erro ao realocar memória");
+                exit(EXIT_FAILURE);
+            }
+        }
+
+        token = strtok(NULL, " ");
+    }
+
+    result[count] = NULL; // Terminar o array com NULL
+    free(inputCopy);      // Liberar a cópia da entrada
+
+    return result;
+}
+
+void executeInputFile(char *instruction)
+{
+    char *program = NULL;
+    char *inputFile = NULL;
+
+    // Parse the instruction to extract the program and input file names.
+    divideCommandBetweenSymbol(instruction, &program, &inputFile, "<");
+
+    removeWhiteSpacesBeforeAfter(program);
+    removeWhiteSpacesBeforeAfter(inputFile);
+
+    // Check if program and inputFile are not NULL.
+    if (program == NULL || inputFile == NULL)
+    {
+        fprintf(stderr, "Error: Invalid instruction format.\n");
+        return;
+    }
+
+    // Create a child process.
+    pid_t pid = fork();
+
+    if (pid == -1)
+    {
+        perror("fork");
+        exit(EXIT_FAILURE);
+    }
+
+    if (pid == 0)
+    { // Child process
+        // Redirect stdin to the input file.
+        freopen(inputFile, "r", stdin);
+
+        // Close standard input after redirection.
+        fclose(stdin);
+
+        // Execute the program.
+        execlp(program, program, (char *)NULL);
+
+        // If execlp fails, print an error message.
+        perror("execlp");
+        exit(EXIT_FAILURE);
+    }
+    else
+    { // Parent process
+        // Wait for the child process to complete.
+        int status;
+        waitpid(pid, &status, 0);
+
+        if (WIFEXITED(status))
+        {
+            printf("Child process exited with status %d\n", WEXITSTATUS(status));
+        }
+        else
+        {
+            printf("Child process did not exit normally.\n");
+        }
+    }
+
+    // Free allocated memory.
+    free(program);
+    free(inputFile);
 }

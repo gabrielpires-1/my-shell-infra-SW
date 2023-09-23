@@ -1,9 +1,4 @@
 ls; ps; ls | grep .txt
-style parallel
-ps; date; ls
-free
-style sequential
-ls; style parallel
-style parallel
+ps; ls
 ps; ls
 exit
