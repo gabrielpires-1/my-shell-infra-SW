@@ -29,6 +29,8 @@ typedef struct Queue
     int mode;
 } Queue;
 
+int pidBack;
+
 void *command_thread(void *arg);
 Queue *createQueue(int argc);
 void enqueue(Queue *queue, char *name);
@@ -43,6 +45,9 @@ int containsSymbol(char *command, char *symbol);
 void divideCommandBetweenSymbol(char *command, char **partOne, char **partTwo, char *symbol);
 int executeLine(char *line, Queue *queue);
 void removeWhiteSpacesBeforeAfter(char *string);
+int isBackground(char *string);
+int executePipe(char *command);
+int executeRedirecting(char *totalCommand);
 
 int main(int argc, char *argv[])
 {
@@ -50,6 +55,13 @@ int main(int argc, char *argv[])
     int should_run = 1; /* flag to determine when to exit program */
     size_t n = 0;
     char *line = NULL;
+    int firstCommand = 1;
+
+    if (argc > 2)
+    {
+        printf("Invalid number of arguments.\n");
+        return 1;
+    }
 
     if (argc > 1)
     {
@@ -74,7 +86,9 @@ int main(int argc, char *argv[])
             else if (!strcmp(line, "style parallel"))
             {
                 strcpy(queue->style, "par>");
-            } else {
+            }
+            else
+            {
                 executeLine(line, queue);
 
                 if (!strcmp(queue->style, "seq>"))
@@ -86,11 +100,11 @@ int main(int argc, char *argv[])
                     execute_par(queue);
                 }
             }
-            
+
             clearQueue(queue);
         }
         fclose(file);
-        }
+    }
     else
     {
         while (should_run)
@@ -102,21 +116,53 @@ int main(int argc, char *argv[])
 
             removeWhiteSpacesBeforeAfter(line);
 
+            if (containsSymbol(line, "!!") && !firstCommand)
+            {
+                char *posicao = strstr(line, "!!");
+                char *resultLine = (char *)malloc(strlen(line) + strlen(queue->last_command) - 1);
+
+                // Calcule o tamanho da substring antes de "!!"
+                int tamanhoAntes = posicao - line;
+
+                // Copie a parte da primeira string antes de "!!" para o resultado
+                strncpy(resultLine, line, tamanhoAntes);
+                resultLine[tamanhoAntes] = '\0'; // Adicione o caractere nulo para indicar o final da string
+
+                // Concatene a segunda string ao resultado
+                strcat(resultLine, queue->last_command);
+
+                // Concatene a parte da primeira string após "!!" ao resultado
+                strcat(resultLine, posicao + 2); // +2 para pular os caracteres "!!"
+                line = (char *)malloc(strlen(resultLine) + 1);
+                strcpy(line, resultLine);
+                free(resultLine);
+            }
+
+            strcpy(queue->last_command, line);
+
             if (feof(stdin))
             {
                 printf("\nCTRL-D pressed\nExiting shell...\n");
                 return 0;
-            } else if (!strcmp(line, "style sequential") || (!strcmp(line, "!!") && !strcmp(queue->last_command, "style sequential")))
-            {
-                strcpy(queue->style, "seq>");
-                strcpy(queue->last_command, "style sequential");
             }
-            else if (!strcmp(line, "style parallel") || (!strcmp(line, "!!") && !strcmp(queue->last_command, "style parallel")))
+            else if (!strcmp(line, "style sequential"))
             {
+                firstCommand = 0;
+                strcpy(queue->style, "seq>");
+            }
+            else if (!strcmp(line, "style parallel"))
+            {
+                firstCommand = 0;
                 strcpy(queue->style, "par>");
-                strcpy(queue->last_command, "style parallel");
-            } else {
-
+            }
+            else if (containsSymbol(line, "!!") && firstCommand)
+            {
+                printf("No commands\n");
+            } 
+            // bug do espaço aquii
+            else
+            {
+                firstCommand = 0;
                 executeLine(line, queue);
 
                 if (!strcmp(queue->style, "seq>"))
@@ -128,7 +174,6 @@ int main(int argc, char *argv[])
                     execute_par(queue);
                 }
             }
-            
             clearQueue(queue);
         }
     }
@@ -136,26 +181,30 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-void removeWhiteSpacesBeforeAfter(char *str){
+void removeWhiteSpacesBeforeAfter(char *str)
+{
     int length = strlen(str);
     int i = 0, j = length - 1;
 
     // Encontrar o primeiro caractere não espaço em branco do início da string
-    while (str[i] == ' ' || str[i] == '\t' || str[i] == '\n') {
+    while (str[i] == ' ' || str[i] == '\t' || str[i] == '\n')
+    {
         i++;
     }
 
     // Encontrar o primeiro caractere não espaço em branco do final da string
-    while (str[j] == ' ' || str[j] == '\t' || str[j] == '\n') {
+    while (str[j] == ' ' || str[j] == '\t' || str[j] == '\n')
+    {
         j--;
     }
 
     // Copiar os caracteres não espaço em branco de volta para a string original
     int k = 0;
-    for (; i <= j; i++, k++) {
+    for (; i <= j; i++, k++)
+    {
         str[k] = str[i];
     }
-    
+
     // Adicionar o caractere nulo terminador
     str[k] = '\0';
 }
@@ -164,7 +213,8 @@ int executeLine(char *line, Queue *queue)
 {
     // Antes de adicionar à fila, remova qualquer quebra de linha
     size_t length = strlen(line);
-    if (length > 0 && line[length - 1] == '\n'){
+    if (length > 0 && line[length - 1] == '\n')
+    {
         line[length - 1] = '\0';
     }
 
@@ -173,22 +223,7 @@ int executeLine(char *line, Queue *queue)
     while (token != NULL)
     {
         removeWhiteSpacesBeforeAfter(token);
-
-        if (strcmp(token, "!!"))
-        {
-            queue->last_command = (char *)malloc(strlen(token + 1));
-            if (queue->last_command == NULL)
-            {
-                printf("Error with malloc\n");
-                return 1;
-            }
-            strcpy(queue->last_command, token);
-            enqueue(queue, token);
-        }
-        else
-        {
-            enqueue(queue, queue->last_command);
-        }
+        enqueue(queue, token);
         token = strtok(NULL, ";");
     }
     return 0;
@@ -196,11 +231,76 @@ int executeLine(char *line, Queue *queue)
 
 void *command_thread(void *arg)
 {
-    char *command = (char *)arg;
-    int returnCode = system(command);
-    if(returnCode != 0){
-        printf("Command %s execution failed or returned non-zero: %d", command, returnCode);
+    char *command = (char *)malloc(strlen((char *)arg) + 1);
+    strcpy(command, (char *)arg);
+    int returnCode;
+
+    if (!strcmp(command, "exit"))
+    {
+        exit(0);
     }
+    else if (!strcmp(command, "style sequential"))
+    {
+        printf("You cannot change the shell style while executing other commands.\n"
+               "Please type just \'style sequential\' or \'style parallel\' to change the shell style.\n");
+    }
+    else if (!strcmp(command, "style parallel"))
+    {
+        printf("You cannot change the shell style while executing other commands.\n"
+               "Please type just \'style sequential\' or \'style parallel\' to change the shell style.\n");
+    }
+    if (containsSymbol(command, ">"))
+    {
+        char *commandToSystem = NULL;
+        char *file = NULL;
+        FILE *archive;
+
+        if (containsSymbol(command, ">>"))
+        {
+            divideCommandBetweenSymbol(command, &commandToSystem, &file, ">>");
+            removeWhiteSpacesBeforeAfter(file);
+            archive = fopen(file, "a");
+        }
+        else
+        {
+            divideCommandBetweenSymbol(command, &commandToSystem, &file, ">");
+            removeWhiteSpacesBeforeAfter(file);
+            archive = fopen(file, "w");
+        }
+
+        if (archive == NULL)
+        {
+            perror("Error while opening the archive");
+            return 1;
+        }
+
+        int original_stdout = dup(STDOUT_FILENO);
+        int fd = fileno(archive);
+
+        if (dup2(fd, STDOUT_FILENO) == -1)
+        {
+            fflush(stdout);
+            perror("Error while redirecting stdout");
+            return 3;
+        }
+
+        system(commandToSystem);
+
+        if (dup2(original_stdout, STDOUT_FILENO) == -1)
+        {
+            perror("Error while restoring stdout");
+            return 4;
+        };
+    }
+    else
+    {
+        returnCode = system(command);
+        if (returnCode != 0)
+        {
+            printf("Command %s execution failed or returned non-zero: %d\n", command, returnCode);
+        }
+    }
+
     free(command);
     pthread_exit(NULL); // Encerra a thread
 }
@@ -216,14 +316,14 @@ Queue *createQueue(int argc)
     }
     queue->head = NULL;
     queue->tail = NULL;
-    queue->last_command = (char *)malloc(sizeof(char));
+    queue->last_command = (char *)malloc(sizeof(strlen("No commands") + 1));
     if (queue->last_command == NULL)
     {
         fprintf(stderr, "Memory allocation error for the queue last command\n");
         exit(1);
     }
     strcpy(queue->last_command, "No commands");
-    queue->style = (char*) malloc(sizeof(char));
+    queue->style = (char *)malloc(sizeof(strlen("seq>") + 1));
     if (queue->last_command == NULL)
     {
         fprintf(stderr, "Memory allocation error for the queue style\n");
@@ -300,18 +400,21 @@ void execute_par(Queue *queue)
     int i = 0;
     while (current != NULL)
     {
-        if (!strcmp(current->name, "exit")){
+        if (!strcmp(current->name, "exit"))
+        {
             exit(0);
-        } else if (!strcmp(current->name, "style sequential"))
-            {
-                printf("You cannot change the shell style while executing other commands.\n"
-                        "Please type just \'style sequential\' or \'style parallel\' to change the shell style.\n");
-            }
-            else if (!strcmp(current->name, "style parallel"))
-            {
-                printf("You cannot change the shell style while executing other commands.\n"
-                        "Please type just \'style sequential\' or \'style parallel\' to change the shell style.\n");
-            } else if (pthread_create(&threads[i], NULL, (void *)command_thread, current->name) != 0)
+        }
+        else if (!strcmp(current->name, "style sequential"))
+        {
+            printf("You cannot change the shell style while executing other commands.\n"
+                   "Please type just \'style sequential\' or \'style parallel\' to change the shell style.\n");
+        }
+        else if (!strcmp(current->name, "style parallel"))
+        {
+            printf("You cannot change the shell style while executing other commands.\n"
+                   "Please type just \'style sequential\' or \'style parallel\' to change the shell style.\n");
+        }
+        else if (pthread_create(&threads[i], NULL, (void *)command_thread, current->name) != 0)
         {
             fprintf(stderr, "Erro ao criar a thread\n");
             exit(1);
@@ -331,14 +434,58 @@ int execute_seq(Queue *queue)
 {
     pid_t parent_pid = getppid();
 
+    Node *current = queue->head;
+
+    if (isBackground(current->name))
+    {
+        pidBack = fork();
+
+        if (pidBack == -1)
+        {
+            perror("fork");
+            return 1;
+        }
+
+        if (pidBack == 0)
+        {
+            // Este é o processo filho
+            execlp("/bin/sh", "sh", "-c", current->name, NULL);
+            perror("execlp"); // Em caso de erro na execução do comando
+            return 1;
+        }
+        else
+        {
+
+            kill(pidBack, SIGSTOP);
+            printf("Processo filho suspenso (PID: %d)\n", pidBack);
+            fflush(stdout);
+        }
+        current = current->next;
+    }
+
+    if (current == NULL)
+        return 0;
+
+    if (!strcmp(current->name, "fg"))
+    {
+        // Se arg for "fg", retoma o processo filho
+        kill(pidBack, SIGCONT);
+        wait(NULL);
+        current = current->next;
+    }
+
+    if (current == NULL)
+        return 0;
+
     int pid = fork();
-    
-    if(pid < 0){
+
+    if (pid < 0)
+    {
         perror("Fork Failed");
         return 1;
-    } else if (pid == 0){ // running the commands in the same child process
-        Node *current = queue->head;
-
+    }
+    else if (pid == 0)
+    {
         // child
         // child cria n forks, representando n processos
         // revisar isso
@@ -355,116 +502,20 @@ int execute_seq(Queue *queue)
             else if (!strcmp(current->name, "style sequential"))
             {
                 printf("You cannot change the shell style while executing other commands.\n"
-                        "Please type just \'style sequential\' or \'style parallel\' to change the shell style.\n");
+                       "Please type just \'style sequential\' or \'style parallel\' to change the shell style.\n");
             }
             else if (!strcmp(current->name, "style parallel"))
             {
                 printf("You cannot change the shell style while executing other commands.\n"
-                        "Please type just \'style sequential\' or \'style parallel\' to change the shell style.\n");
-            } else if (containsSymbol(current->name, "|")){
-                char *partOne = NULL;
-                char *partTwo = NULL;
-                divideCommandBetweenSymbol(current->name, &partOne, &partTwo, "|");
-
-                fflush(stdout);
-                int fd[2];
-                if (pipe(fd) == -1)
-                {
-                    printf("Error with the pipe\n");
-                    return 1;
-                }
-
-                int pid1 = fork();
-                if (pid1 < 0)
-                {
-                    fprintf(stderr, "Fork Failed");
-                    return 2;
-                }
-
-                if (pid1 == 0)
-                {
-                    // Child Process 1
-                    fflush(stdout);
-                    if(dup2(fd[1], STDOUT_FILENO) == -1){
-                        perror("Error while redirecting stdout");
-                        return 3;
-                    };
-                    close(fd[0]);
-                    close(fd[1]);
-                    execlp("/bin/sh", "sh", "-c", partOne, NULL);
-                    perror("execlp");
-                    exit(0);
-                }
-
-                int pid2 = fork();
-                if (pid2 < 0)
-                {
-                    fprintf(stderr, "Fork Failed");
-                    return 3;
-                }
-
-                if (pid2 == 0)
-                {
-                    // Child Process 2
-                    if(dup2(fd[0], STDIN_FILENO)==-1){
-                        perror("Error while redirecting stdout");
-                        return 3;
-                    };
-                    close(fd[1]);
-                    close(fd[0]);
-                    if (!strcmp(partTwo, queue->head->name))
-                        strcpy(partTwo, queue->head->name);
-                    execlp("/bin/sh", "sh", "-c", partTwo, NULL);
-                    perror("execlp");
-                    exit(0);
-                }
-
-                close(fd[0]);
-                close(fd[1]);
-
-                waitpid(pid1, NULL, 0);
-                waitpid(pid2, NULL, 0);
-            } else if (containsSymbol(current->name, ">")){
-                char *command = NULL;
-                char *file = NULL;
-                FILE *archive;
-
-                int pid1 = fork();
-
-                if(pid1 < 0){
-                    fprintf(stderr, "Fork Failed");
-                    return 2;
-                } else if(pid1 == 0){
-
-                    if(containsSymbol(current->name, ">>")){
-                    divideCommandBetweenSymbol(current->name, &command, &file, ">>");
-                    removeWhiteSpacesBeforeAfter(file);
-                    archive = fopen(file, "a");
-                } else {
-                    divideCommandBetweenSymbol(current->name, &command, &file, ">");
-                    removeWhiteSpacesBeforeAfter(file);
-                    archive = fopen(file, "w");
-                }
-                
-                if (archive == NULL) {
-                    perror("Error while opening the archive");
-                    return 1;
-                }
-
-                    int fd = fileno(archive);
-
-                    if (dup2(fd, STDOUT_FILENO) == -1) {
-                        fflush(stdout);
-                        perror("Error while redirecting stdout");
-                        return 3;
-                    }
-
-                    execlp("/bin/sh", "sh", "-c", command, NULL);
-                    perror("execlp");
-                    exit(0);
-                }
-                
-                wait(NULL);
+                       "Please type just \'style sequential\' or \'style parallel\' to change the shell style.\n");
+            }
+            else if (containsSymbol(current->name, ">"))
+            {
+                executeRedirecting(current->name);
+            }
+            else if (containsSymbol(current->name, "|"))
+            {
+                executePipe(current->name);
             }
             else
             {
@@ -494,9 +545,9 @@ int execute_seq(Queue *queue)
             current = current->next;
         }
         exit(0);
-        }
+    }
 
-        waitpid(pid, NULL, 0);
+    waitpid(pid, NULL, 0);
 
     return 0;
 }
@@ -580,4 +631,162 @@ void divideCommandBetweenSymbol(char *command, char **partOne, char **partTwo, c
         *partOne = strdup(command);
         *partTwo = NULL;
     }
+}
+
+int isBackground(char *command)
+{
+    int lenght = strlen(command);
+
+    char *string = (char *)malloc(lenght + 1);
+
+    strcpy(string, command);
+
+    if (string == NULL || string[0] == '\0')
+    {
+        // Trate casos especiais, como string vazia ou nula
+        return 0;
+    }
+
+    char *lastString = NULL;
+    // Usando strtok para dividir a string em palavras pelo espaço
+    char *token = strtok(string, " ");
+    while (token != NULL)
+    {
+        lastString = token;
+        token = strtok(NULL, " ");
+    }
+
+    // Verificar se a última substring é "&" (não verificar caracteres de nova linha)
+    if (lastString != NULL && strcmp(lastString, "&") == 0)
+    {
+        return 1;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+int executePipe(char *command)
+{
+    char *partOne = NULL;
+    char *partTwo = NULL;
+    divideCommandBetweenSymbol(command, &partOne, &partTwo, "|");
+
+    fflush(stdout);
+    int fd[2];
+    if (pipe(fd) == -1)
+    {
+        printf("Error with the pipe\n");
+        return 1;
+    }
+
+    int pid1 = fork();
+    if (pid1 < 0)
+    {
+        fprintf(stderr, "Fork Failed");
+        return 2;
+    }
+
+    if (pid1 == 0)
+    {
+        // Child Process 1
+        fflush(stdout);
+        if (dup2(fd[1], STDOUT_FILENO) == -1)
+        {
+            perror("Error while redirecting stdout");
+            return 3;
+        };
+        close(fd[0]);
+        close(fd[1]);
+        execlp("/bin/sh", "sh", "-c", partOne, NULL);
+        perror("execlp");
+        exit(0);
+    }
+
+    int pid2 = fork();
+    if (pid2 < 0)
+    {
+        fprintf(stderr, "Fork Failed");
+        return 3;
+    }
+
+    if (pid2 == 0)
+    {
+        // Child Process 2
+        if (dup2(fd[0], STDIN_FILENO) == -1)
+        {
+            perror("Error while redirecting stdout");
+            return 3;
+        };
+        close(fd[1]);
+        close(fd[0]);
+        execlp("/bin/sh", "sh", "-c", partTwo, NULL);
+        perror("execlp");
+        exit(0);
+    }
+
+    close(fd[0]);
+    close(fd[1]);
+
+    waitpid(pid1, NULL, 0);
+    waitpid(pid2, NULL, 0);
+}
+
+int executeRedirecting(char *totalCommand)
+{
+    char *command = NULL;
+    char *file = NULL;
+    FILE *archive;
+
+    int pid1 = fork();
+
+    if (pid1 < 0)
+    {
+        fprintf(stderr, "Fork Failed");
+        return 2;
+    }
+    else if (pid1 == 0)
+    {
+
+        if (containsSymbol(totalCommand, ">>"))
+        {
+            divideCommandBetweenSymbol(totalCommand, &command, &file, ">>");
+            removeWhiteSpacesBeforeAfter(file);
+            archive = fopen(file, "a");
+        }
+        else
+        {
+            divideCommandBetweenSymbol(totalCommand, &command, &file, ">");
+            removeWhiteSpacesBeforeAfter(file);
+            archive = fopen(file, "w");
+        }
+
+        if (archive == NULL)
+        {
+            perror("Error while opening the archive");
+            return 1;
+        }
+
+        int fd = fileno(archive);
+
+        if (dup2(fd, STDOUT_FILENO) == -1)
+        {
+            fflush(stdout);
+            perror("Error while redirecting stdout");
+            return 3;
+        }
+
+        if(containsSymbol(command, "|")){
+            executePipe(command);
+            exit(0);
+        }
+
+        execlp("/bin/sh", "sh", "-c", command, NULL);
+        perror("execlp");
+        exit(0);
+    }
+
+    waitpid(pid1, NULL, 0);
+    fflush(stdout);
 }
