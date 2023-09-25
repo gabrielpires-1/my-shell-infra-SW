@@ -1,0 +1,2 @@
+Nome: comandos.txt
+Idade: 0

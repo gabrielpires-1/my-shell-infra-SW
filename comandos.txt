@@ -1,4 +1,6 @@
 ls; ps; ls | grep .txt
+
 ps; ls
+
 ps; ls
 exit

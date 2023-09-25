@@ -1,1 +1,24 @@
+2
+Makefile
+README.md
 comandos.txt
+dados.txt
+datefile.txt
+gabriel
+l
+l>
+lol.txt
+lsfile
+myShell.c
+myShell2.c
+saida
+saida2
+shell
+testarMenorQue.c
+teste.c
+    PID TTY          TIME CMD
+   8142 pts/0    00:00:00 bash
+  10730 pts/0    00:00:00 shell
+  11085 pts/0    00:00:00 shell
+  11092 pts/0    00:00:00 sh
+  11093 pts/0    00:00:00 ps
